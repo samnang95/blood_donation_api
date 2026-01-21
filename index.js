@@ -21,6 +21,10 @@ app.use(bodyParser.urlencoded({ extended: true }));
 const productRoutes = require("./src/routes/product.js");
 app.use("/products", productRoutes);
 
+// Auth Routes
+const authRoutes = require("./src/routes/auth.js");
+app.use("/auth", authRoutes);
+
 app.listen(process.env.PORT, () => {
   console.log(`Server is running on port ${process.env.PORT}`);
 });
