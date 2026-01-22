@@ -6,10 +6,11 @@ const {
   updateProfile,
   deleteProfile,
 } = require("../controllers/profile.js");
+const { authenticateToken } = require("../controllers/auth.js");
 
 const router = express.Router();
 
-router.post("/", createProfile);
+router.post("/", authenticateToken, createProfile);
 router.get("/", getProfiles);
 router.get("/:id", getProfileById);
 router.put("/:id", updateProfile);

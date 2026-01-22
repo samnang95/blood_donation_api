@@ -28,6 +28,62 @@ function signToken(user) {
 }
 
 /**
+ * @desc    Authentication middleware
+ */
+const authenticateToken = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(" ")[1]; // Bearer TOKEN
+
+    if (!token) {
+      return res.status(401).json({
+        message: "Access token required",
+      });
+    }
+
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      return res.status(500).json({
+        message: "Server configuration error",
+      });
+    }
+
+    const decoded = jwt.verify(token, secret);
+
+    // Fetch user from database to ensure they still exist
+    const user = await UserModel.findById(decoded.userId);
+    if (!user) {
+      return res.status(401).json({
+        message: "User not found",
+      });
+    }
+
+    req.user = {
+      id: user._id,
+      phone: user.phone,
+      firstName: user.firstName,
+      lastName: user.lastName,
+    };
+
+    next();
+  } catch (error) {
+    if (error.name === "JsonWebTokenError") {
+      return res.status(401).json({
+        message: "Invalid token",
+      });
+    }
+    if (error.name === "TokenExpiredError") {
+      return res.status(401).json({
+        message: "Token expired",
+      });
+    }
+    return res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+
+/**
  * @desc    Signup
  * @route   POST /auth/signup
  */
@@ -169,7 +225,27 @@ const login = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Logout
+ * @route   POST /auth/logout
+ */
+const logout = async (req, res) => {
+  try {
+    // For JWT, logout is primarily handled client-side by removing the token
+    // Server-side, we can optionally blacklist the token if needed
+    return res.status(200).json({
+      message: "Logout successful",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   signup,
   login,
+  logout,
+  authenticateToken,
 };
