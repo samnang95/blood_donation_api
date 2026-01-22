@@ -17,10 +17,6 @@ const dbConnect = require("./src/db/db.js");
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Routes
-const productRoutes = require("./src/routes/product.js");
-app.use("/products", productRoutes);
-
 // Auth Routes
 const authRoutes = require("./src/routes/auth.js");
 app.use("/auth", authRoutes);
