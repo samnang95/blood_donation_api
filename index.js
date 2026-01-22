@@ -21,6 +21,14 @@ app.use(bodyParser.urlencoded({ extended: true }));
 const authRoutes = require("./src/routes/auth.js");
 app.use("/auth", authRoutes);
 
+// Card Routes
+const cardRoutes = require("./src/routes/card.js");
+app.use("/cards", cardRoutes);
+
+// Profile Routes
+const profileRoutes = require("./src/routes/profile.js");
+app.use("/profiles", profileRoutes);
+
 app.listen(process.env.PORT, () => {
   console.log(`Server is running on port ${process.env.PORT}`);
 });
