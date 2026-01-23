@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const ProfileModel = require("../models/profile.js");
 
 function pickBody(req, keys) {
@@ -52,17 +53,6 @@ const createProfile = async (req, res) => {
     if (!email) missing.push("email");
     if (!mobilePhone) missing.push("mobilePhone");
     if (!location) missing.push("location");
-    if (!bloodType) missing.push("bloodType");
-    if (!dateOfBirth) missing.push("dateOfBirth");
-    if (!gender) missing.push("gender");
-    if (
-      !emergencyContact ||
-      !emergencyContact.name ||
-      !emergencyContact.phone ||
-      !emergencyContact.relationship
-    ) {
-      missing.push("emergencyContact (with name, phone, relationship)");
-    }
     if (missing.length) {
       return res.status(400).json({
         message: `Missing required fields: ${missing.join(", ")}`,
@@ -77,44 +67,73 @@ const createProfile = async (req, res) => {
       });
     }
 
-    // Validate blood type
-    const validBloodTypes = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
-    if (!validBloodTypes.includes(bloodType.toUpperCase())) {
-      return res.status(400).json({
-        message:
-          "Invalid blood type. Must be one of: A+, A-, B+, B-, AB+, AB-, O+, O-",
-      });
+    // Validate blood type if provided
+    if (bloodType) {
+      const validBloodTypes = [
+        "A+",
+        "A-",
+        "B+",
+        "B-",
+        "AB+",
+        "AB-",
+        "O+",
+        "O-",
+      ];
+      if (!validBloodTypes.includes(bloodType.toUpperCase())) {
+        return res.status(400).json({
+          message:
+            "Invalid blood type. Must be one of: A+, A-, B+, B-, AB+, AB-, O+, O-",
+        });
+      }
     }
 
-    // Validate gender
-    const validGenders = ["male", "female", "other"];
-    if (!validGenders.includes(gender)) {
-      return res.status(400).json({
-        message: "Invalid gender. Must be one of: male, female, other",
+    // Validate gender if provided
+    if (gender) {
+      const validGenders = ["male", "female", "other"];
+      if (!validGenders.includes(gender)) {
+        return res.status(400).json({
+          message: "Invalid gender. Must be one of: male, female, other",
+        });
+      }
+    }
+
+    // Check if user already has a profile
+    const existingUserProfile = await ProfileModel.findOne({
+      user: req.user.id,
+    });
+    if (existingUserProfile) {
+      return res.status(409).json({
+        message: "User already has a profile",
       });
     }
 
     // Check if email already exists
-    const existingProfile = await ProfileModel.findOne({ email });
-    if (existingProfile) {
+    const existingEmail = await ProfileModel.findOne({ email });
+    if (existingEmail) {
       return res.status(409).json({
         message: "Email is already registered",
       });
     }
 
-    const profile = await ProfileModel.create({
+    const profileData = {
+      user: req.user.id,
       firstName,
       lastName,
       email,
       mobilePhone,
       location,
-      bloodType: bloodType.toUpperCase(),
-      dateOfBirth: new Date(dateOfBirth),
-      gender,
-      emergencyContact,
-      medicalHistory,
-      isAvailable: isAvailable !== undefined ? Boolean(isAvailable) : true,
-    });
+    };
+
+    // Add optional fields if provided
+    if (bloodType) profileData.bloodType = bloodType.toUpperCase();
+    if (dateOfBirth) profileData.dateOfBirth = new Date(dateOfBirth);
+    if (gender) profileData.gender = gender;
+    if (emergencyContact) profileData.emergencyContact = emergencyContact;
+    if (medicalHistory) profileData.medicalHistory = medicalHistory;
+    if (isAvailable !== undefined)
+      profileData.isAvailable = Boolean(isAvailable);
+
+    const profile = await ProfileModel.create(profileData);
 
     return res.status(201).json({
       message: "Profile created successfully",
@@ -207,6 +226,21 @@ const updateProfile = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Find the profile and ensure it belongs to the authenticated user
+    const profile = await ProfileModel.findById(id);
+    if (!profile) {
+      return res.status(404).json({
+        message: "Profile not found",
+      });
+    }
+
+    // ✅ Fixed: Remove mongoose.Types.ObjectId() wrapper
+    if (!profile.user.equals(req.user.id)) {
+      return res.status(403).json({
+        message: "Access denied. You can only update your own profile",
+      });
+    }
+
     const firstName = pickBody(req, ["firstName", "first_name", "firstname"]);
     const lastName = pickBody(req, ["lastName", "last_name", "lastname"]);
     const email = pickBody(req, ["email", "Email"]);
@@ -217,7 +251,7 @@ const updateProfile = async (req, res) => {
       "Phone",
     ]);
     const location = pickBody(req, ["location", "Location"]);
-    const bloodType = pickBody(req, ["bloodType", "blood_type", "bloodType"]);
+    const bloodType = pickBody(req, ["bloodType", "blood_type"]);
     const dateOfBirth = pickBody(req, ["dateOfBirth", "date_of_birth", "dob"]);
     const gender = pickBody(req, ["gender", "Gender"]);
     const emergencyContact = pickBody(req, [
@@ -265,8 +299,15 @@ const updateProfile = async (req, res) => {
       }
       updateData.bloodType = bt;
     }
-    if (dateOfBirth !== undefined)
-      updateData.dateOfBirth = new Date(dateOfBirth);
+    if (dateOfBirth !== undefined) {
+      const dob = new Date(dateOfBirth);
+      if (isNaN(dob.getTime())) {
+        return res.status(400).json({
+          message: "Invalid date of birth format",
+        });
+      }
+      updateData.dateOfBirth = dob;
+    }
     if (gender !== undefined) {
       const g = String(gender).trim().toLowerCase();
       const validGenders = ["male", "female", "other"];
@@ -284,12 +325,16 @@ const updateProfile = async (req, res) => {
     if (isAvailable !== undefined)
       updateData.isAvailable = Boolean(isAvailable);
 
-    const profile = await ProfileModel.findByIdAndUpdate(id, updateData, {
-      new: true,
-      runValidators: true,
-    });
+    const updatedProfile = await ProfileModel.findByIdAndUpdate(
+      id,
+      updateData,
+      {
+        new: true,
+        runValidators: true,
+      },
+    );
 
-    if (!profile) {
+    if (!updatedProfile) {
       return res.status(404).json({
         message: "Profile not found",
       });
@@ -297,7 +342,7 @@ const updateProfile = async (req, res) => {
 
     return res.status(200).json({
       message: "Profile updated successfully",
-      profile,
+      profile: updatedProfile,
     });
   } catch (error) {
     if (error.name === "CastError") {
@@ -319,7 +364,21 @@ const deleteProfile = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const profile = await ProfileModel.findByIdAndDelete(id);
+    // Find the profile and ensure it belongs to the authenticated user
+    const profile = await ProfileModel.findById(id);
+    if (!profile) {
+      return res.status(404).json({
+        message: "Profile not found",
+      });
+    }
+
+    if (!profile.user.equals(mongoose.Types.ObjectId(req.user.id))) {
+      return res.status(403).json({
+        message: "Access denied. You can only delete your own profile",
+      });
+    }
+
+    await ProfileModel.findByIdAndDelete(id);
 
     if (!profile) {
       return res.status(404).json({
@@ -343,10 +402,36 @@ const deleteProfile = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Get current user's profile
+ * @route   GET /profiles/me
+ */
+const getMyProfile = async (req, res) => {
+  try {
+    const profile = await ProfileModel.findOne({ user: req.user.id });
+
+    if (!profile) {
+      return res.status(404).json({
+        message: "Profile not found",
+      });
+    }
+
+    return res.status(200).json({
+      message: "Profile retrieved successfully",
+      profile,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   createProfile,
   getProfiles,
   getProfileById,
+  getMyProfile,
   updateProfile,
   deleteProfile,
 };
